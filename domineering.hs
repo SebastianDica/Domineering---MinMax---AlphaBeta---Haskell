@@ -4,11 +4,9 @@ type Move = (Int,Int)
 
 horMoves :: Int -> Int -> [Move]
 horMoves m n = [(x,y) | x <- [0..((n*m)-1)], y <- [0..((n*m)-1)], x /= y, x - y == 1, ((x `div` m) == (y `div` m))]
-               ++[(y,x) | x <- [0..((n*m)-1)], y <- [0..((n*m)-1)], x /= y, x - y == 1, ((x `div` m) == (y `div` m))]
              
 verMoves :: Int -> Int -> [Move]
 verMoves m n = [(x,y) | x <- [0..((n*m)-1)], y <- [0..((n*m)-1)], x /= y, x - y == m]
-               ++[(y,x) | x <- [0..((n*m)-1)], y <- [0..((n*m)-1)], x /= y, x - y == m]
              
 modify :: [Move] -> Int -> [Move]
 modify [] _ = []
@@ -62,24 +60,25 @@ play (m,n) (Board c r H xs os hPoss vPoss outcome) = let xs' = insert (m,n) xs i
   let vPoss' = (modify (modify vPoss m) n) in
   if (vPoss' == [])
      then Board c r V xs' os hPoss' vPoss'            1
-     else Board c r V xs' os hPoss' vPoss'            0
+     else Board c r V xs' os hPoss' vPoss'            (if((length vPoss') > (length hPoss')) then (-1) else 1)
 play (m,n) (Board c r V xs os hPoss vPoss outcome) = let os' = insert (m,n) os in
   let hPoss' = (modify (modify hPoss m) n) in
   let vPoss' = (modify (modify vPoss m) n) in
   if (hPoss' == [])
      then Board c r H xs os' hPoss' vPoss'           (-1)
-     else Board c r H xs os' hPoss' vPoss'            0
+     else Board c r H xs os' hPoss' vPoss'           (if((length vPoss') > (length hPoss')) then (-1) else 1)
 play m board = error "Bug when using function play."
 
 
 winningBoard :: Board -> Bool
-winningBoard board = outcome board /= 0 && (hPossibleM board == [] || vPossibleM board == [])
+winningBoard board = if((player board == V)&&(vPossibleM board == []))then True
+                     else if((player board == H)&&(hPossibleM board == [])) then True else False
 
 --Trees
 
-data Tree = Fork {root :: Board, children :: [(Move,Tree)]}
+data Tree = Fork {root :: Board, children :: [(Move,(Tree,Int,Int))]}
 
-treeOf :: Board -> Tree
+{-|treeOf :: Board -> Tree
 treeOf board | null(hPossibleM board) || null (vPossibleM board) = Fork board [] 
              | otherwise                = Fork board' forest
   where
@@ -87,28 +86,39 @@ treeOf board | null(hPossibleM board) || null (vPossibleM board) = Fork board []
                                    else [(m, treeOf'(play m board)) | m <- (vPossibleM board)]   
     board'
      | player board == H = board {outcome = maximum [outcome(root t) | (_,t)<-forest]}
-     | otherwise         = board {outcome = minimum [outcome(root t) | (_,t)<-forest]}
-treeOf' :: Board -> Tree
-treeOf' board | winningBoard board || null(hPossibleM board) || null (vPossibleM board) = Fork board [] 
-              | otherwise                                                   = Fork board' forest
+     | otherwise         = board {outcome = minimum [outcome(root t) | (_,t)<-forest]} -}
+treeOf' :: Board -> Int -> Int -> Tree
+treeOf' board n l | winningBoard board || null(hPossibleM board) || null (vPossibleM board) = Fork board [] 
+                  | otherwise                                                   = Fork board' forest
   where
-    forest = if(player board == H) then [(m, treeOf'(play m board)) | m <- (hPossibleM board)]
-                                   else [(m, treeOf'(play m board)) | m <- (vPossibleM board)]    
+    forest = if(n > l) then []
+               else
+               if(player board == H) then [(m, ((treeOf'(play m board) (n+1) l),n,l)) | m <- (hPossibleM board)]
+                                     else [(m, ((treeOf'(play m board) (n+1) l),n,l)) | m <- (vPossibleM board)]    
     board'
-     | player board == H = board {outcome = supremum [outcome(root t) | (_,t)<-forest]}
-     | otherwise         = board {outcome = infimum  [outcome(root t) | (_,t)<-forest]}
-     
-tictactoe :: Int -> Int -> Tree
-tictactoe m n = treeOf (initialBoard m n)
+     | player board == H = board {outcome = supremum [outcome(root t) | (_,(t,_,_))<-forest]}
+     | otherwise         = board {outcome = infimum  [outcome(root t) | (_,(t,_,_))<-forest]}
+upgradeTree :: Tree -> Int -> Int -> Tree
+upgradeTree (Fork board children) n l = Fork board' forest
+    where
+    forest = if(n > l) then []
+               else
+               if(player board == H) then [(m, ((treeOf'(play m board) (n+1) l),n,l)) | m <- (hPossibleM board)]
+                                     else [(m, ((treeOf'(play m board) (n+1) l),n,l)) | m <- (vPossibleM board)]    
+    board'
+     | player board == H = board {outcome = supremum [outcome(root t) | (_,(t,_,_))<-forest]}
+     | otherwise         = board {outcome = infimum  [outcome(root t) | (_,(t,_,_))<-forest]}
+tictactoe :: Int -> Int -> Int -> Tree
+tictactoe m n l = treeOf' (initialBoard m n) 0 l
 
 noplays :: Tree -> Int 
 noplays (Fork _ []) = 1
-noplays (Fork _ forest) = sum [noplays tree | (_,tree) <- forest]
+noplays (Fork _ forest) = sum [noplays tree | (_,(tree,_,_)) <- forest]
 
 
 optimalMoves :: Tree -> [(Move,Tree)]
-optimalMoves (Fork board forest) = if player board == H then [(m,t) | (m,t)<-forest, outcome(root t) == outcome board] ++ [(m,t) | (m,t)<-forest] 
-                                                        else [(m,t) | (m,t)<-forest, outcome(root t) == outcome board] ++ [(m,t) | (m,t)<-forest] 
+optimalMoves (Fork board forest) = if player board == H then [(m,t) | (m,(t,_,_))<-forest, outcome(root t) == outcome board]
+                                                        else [(m,t) | (m,(t,_,_))<-forest, outcome(root t) == outcome board]
 
 elementary :: Int -> [Move] -> Bool
 elementary n [] = False
@@ -118,15 +128,21 @@ instance Show Board where
   show (Board m n pl xs os hpos vpos oc) =
        show pl ++ " plays next\n"
     ++ "The optimal outcome is " ++ show oc ++ "\n\n" 
-    ++ (getString m n)
+    ++ (getString m n (numLength (n*m) 0)) 
     where
-      f m | elementary m xs = show H
-          | elementary m os = show V
-          | otherwise   = show m
-      getString m n = toString [0..(n*m -1)] m 0
-      toString [] m count = ""
-      toString (x:xs) m count = if((count `div` (m-1) == 0)) then f x ++ "  " ++ (toString xs m (count + 1))
-                                                      else f x ++ "\n\n" ++ (toString xs m 0)
+      numLength p acc = if (p == 0) then acc
+                                    else numLength (p `div` 10) (acc+1)
+      f m grade | elementary m xs = show H ++ (if(m<10) then "" else (numSpaces ((getNum grade m))))
+                | elementary m os = show V ++ (if(m<10) then "" else (numSpaces ((getNum grade m))))
+                | otherwise   = show m
+      getString m n grade = toString [0..(n*m -1)] m 0 grade
+      getNum n m = if(m==0) then (n - (numLength 1 0))
+                            else (n - (numLength m 0))
+      toString [] m count grade = ""
+      toString (x:xs) m count grade = if((count `div` (m-1) == 0)) then (f x grade) ++ (numSpaces (getNum grade x)) ++ "|" 
+                                                                        ++ "  " ++(toString xs m (count + 1) grade)
+                                                                   else (f x grade) ++ "\n\n" ++ (toString xs m 0 grade)
+      numSpaces n = if (n==(-1)) then "" else " " ++ (numSpaces (n-1))
 
 
 
@@ -137,7 +153,7 @@ usersTurn (Fork board []) = do
   putStrLn("Game over with outcome " ++ show(outcome board))
 usersTurn (tree@(Fork board forest)) = do
   putStrLn(show board)
-  putStrLn("The list of outcomes from now on is " ++ show(outcomes' tree))
+  --utStrLn("The list of outcomes from now on is " ++ show(outcomes' tree))
   putStrLn("Please play ")
   putStr("Enter first coordinate: ")
   hFlush stdout
@@ -148,13 +164,17 @@ usersTurn (tree@(Fork board forest)) = do
   row <- getLine
   let rowM = read row
   case lookup (columnM,rowM) forest of -----------------DO TURN AROUND
-    Nothing -> do
-      putStrLn "Invalid move. Try again."
-      usersTurn (Fork board forest)
-    Just tree -> do
-      if winningBoard board
-         then putStrLn (show board ++ "\nYou win.")
-         else computersTurn tree                                                      
+               Nothing -> case lookup (rowM,columnM) forest of Nothing -> do
+                                                                          putStrLn "Invalid move. Try again."
+                                                                          usersTurn (Fork board forest)
+                                                               Just (tree,_,l) -> do
+                                                                            if winningBoard board
+                                                                            then putStrLn (show board ++ "\nYou win.")
+                                                                            else computersTurn (upgradeTree tree 0 l)   
+               Just (tree,_,l) -> do
+                            if winningBoard board
+                            then putStrLn (show board ++ "\nYou win.")
+                            else computersTurn (upgradeTree tree 0 l)                                                                                                     
                        
 choose :: Int -> [a] -> a
 choose n [x] = x
@@ -166,7 +186,7 @@ computersTurn (Fork board []) = do
   putStrLn("Game over with outcome " ++ show(outcome board))
 computersTurn (tree@(Fork board forest)) = do
   putStrLn(show board)
-  putStrLn("The list of outcomes from now on is " ++ show(outcomes' tree))
+  --putStrLn("The list of outcomes from now on is " ++ show(outcomes' tree))
   putStrLn("I am thinking...")
   putStrLn("The optimal outcome is " ++ show(outcome board))
   let myMoves = optimalMoves tree
@@ -174,14 +194,15 @@ computersTurn (tree@(Fork board forest)) = do
   if null myMoves
      then putStrLn "I lost."
      else do
-       let (m,subtree) = choose 0 myMoves 
+       let (m,subtree) = choose 0 myMoves     
        putStrLn("I play " ++ show m)
        let Fork board' forest' = subtree
-       if winningBoard board' 
-          then putStrLn(show board' ++ "\nI win.")
-          else if null forest'
-                  then putStrLn("\nGame over.")
-                  else usersTurn subtree                       
+       case lookup m forest of Nothing -> error "Trying to make a move that is not in the tree"
+                               Just (tree,_,l) -> if winningBoard board' 
+                                                  then putStrLn(show board' ++ "\nI win.")
+                                                  else if null forest'
+                                                       then putStrLn("\nGame over.")
+                                                       else usersTurn (upgradeTree tree 0 l)                       
 
 
      
@@ -209,7 +230,7 @@ infimum (0:xs)    = infimum0 xs
 
 outcomes :: Tree -> [Outcome]
 outcomes (Fork board []) = [outcome board]
-outcomes (Fork _ trees) = concat [outcomes tree | (_,tree) <- trees]
+outcomes (Fork _ trees) = concat [outcomes tree | (_,(tree,_,_)) <- trees]
 
 type Set a = a -> Bool
 
@@ -221,11 +242,11 @@ union ps = \x -> or [p x | p <- ps]
 
 outcomesSet :: Tree -> Set Outcome
 outcomesSet (Fork board []) = singleton(outcome board)
-outcomesSet (Fork _ forest) = union[outcomesSet tree | (_,tree) <- forest]
+outcomesSet (Fork _ forest) = union[outcomesSet tree | (_,(tree,_,_)) <- forest]
 
 
 outcomes' :: Tree -> [Outcome]
-outcomes' tree = [x | x<-[-1,0,1], outcomesSet tree x]
+outcomes' tree = [x | x<-[-1,1], outcomesSet tree x]
 {-|
 play :: Move -> Board -> Board
 play (m,n) (Board c r H xs os outcome situation) = if ((m-n) == (-1) || (m-n) == 1) then
